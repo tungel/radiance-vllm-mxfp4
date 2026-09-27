@@ -340,6 +340,9 @@ exec "$RUNTIME" run "${RT_FLAGS[@]}" --name "$NAME" --privileged --ipc=host --ne
   -e TRITON_CACHE_DIR=/cache/triton -e AITER_ROOT_DIR=/cache/aiter \
   -e TRITON_CACHE_AUTOTUNING=1 \
   -v "$HF_CACHE":/root/.cache/huggingface \
+  -v "$HOME/.radiance-so-093/module_aiter_core.so":/opt/vllm/lib/python3.12/site-packages/aiter/jit/module_aiter_core.so \
+  -v "$HOME/.radiance-so-093/radiance_mxfp4_fp8.so":/opt/vllm/lib/python3.12/site-packages/radiance_mxfp4_fp8.so \
+  -v "$HOME/.radiance-so-093/radiance_paroquant_kernel.so":/opt/vllm/lib/python3.12/site-packages/radiance_paroquant_kernel.so \
   -v "$MODELS":/models \
   -v "$CACHE":/cache \
   -v "$PATCHES_DIR":/patches:z \
@@ -375,7 +378,8 @@ exec "$RUNTIME" run "${RT_FLAGS[@]}" --name "$NAME" --privileged --ipc=host --ne
     cp radiance_mxfp4.py radiance_gemm.py radiance_gdn.py radiance_gdnmerge.py radiance_rmsquant.py \
        radiance_drafthead.py radiance_verifyhead.py radiance_aroverlap.py radiance_topk.py \
        radiance_arnq.py "$SP"/
-    hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
+    #hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
+    [ -f "$SP/radiance_mxfp4_fp8.so" ] || hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
       radiance_mxfp4_fp8.hip -o "$SP"/radiance_mxfp4_fp8.so
     if [ -n "${R4D_SO:-}" ] && [ -f /r4d/r4d.so ]; then
       cp /r4d/r4d.so "$SP"/r4d.so
@@ -385,7 +389,8 @@ exec "$RUNTIME" run "${RT_FLAGS[@]}" --name "$NAME" --privileged --ipc=host --ne
     cd /paro
     # RADIANCE_PQ_HIPCC_FLAGS: extra compile flags for A/B builds of the kernel module only
     # (e.g. -DPQ_HW_CVT=0 to fall back to the software e4m3 encoder). Empty in prod.
-    hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
+    #hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
+    [ -f "$SP/radiance_paroquant_kernel.so" ] || hipcc -O3 -w -std=c++17 -fPIC -shared --offload-arch=gfx1201 $(python3 -m pybind11 --includes) \
       ${RADIANCE_PQ_HIPCC_FLAGS:-} radiance_paroquant.hip -o "$SP"/radiance_paroquant_kernel.so
     cp radiance_paroquant.py radiance_paroquant_mxfp4.py "$SP"/
     cp /patches/radiance_dflash_capture.py "$SP"/ 2>/dev/null || cp ../radiance_dflash_capture.py "$SP"/
@@ -421,7 +426,7 @@ exec "$RUNTIME" run "${RT_FLAGS[@]}" --name "$NAME" --privileged --ipc=host --ne
   $ASYNC_FLAG \
   --mamba-cache-mode align \
   --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 \
-  --override-generation-config '{"temperature":0.7,"top_p":0.95,"top_k":20}' \
+  --override-generation-config '{"temperature":1.0,"top_p":0.95,"top_k":20}' \
   --chat-template "$CT_PATH" \
   "${SPEC_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
